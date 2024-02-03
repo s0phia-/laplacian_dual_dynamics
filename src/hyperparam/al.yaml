@@ -10,7 +10,7 @@ seed: 1234
 env_name: GridRoom-16
 env_family: Grid-v0
 lr: 0.001
-use_wandb: True
+use_wandb: False
 hidden_dims:
   - 256
   - 256
