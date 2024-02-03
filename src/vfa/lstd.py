@@ -16,6 +16,16 @@ class Lstdq:
         self.samples = source_of_samples  # called D in LSPI paper
         self.policy_matrix = policy
         self.ev_map = eigenvectors
+        self.epsilon = .15
+
+    def act(self, state):
+        """
+        return the action to take, given the state
+        """
+        if np.random.rand() < self.epsilon:
+            return np.random.randint(0, self.num_actions-1)
+        else:
+            return self.greedy_policy(self.ev_map[state])
 
     @staticmethod
     def random_tiebreak_argmax(x):
