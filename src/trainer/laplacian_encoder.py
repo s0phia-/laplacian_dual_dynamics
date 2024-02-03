@@ -13,7 +13,7 @@ import wandb
 import src.env
 from src.env.wrapper.norm_obs import NormObs
 from src.agent.agent import BehaviorAgent as Agent
-from src.policy import DiscreteUniformRandomPolicy as Policy
+from src.policy.policy import DiscreteUniformRandomPolicy as Policy
 
 from ..tools import timer_tools
 from ..tools import summary_tools
@@ -76,23 +76,25 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
 
         return params, opt_state, aux[0]
 
-    def train(self) -> None:
-
+    def train(self, reset_params=True) -> None:
+        # TODO don't reinitialize on every run of training step
         timer = timer_tools.Timer()
 
-        # Initialize the parameters
-        rng = hk.PRNGSequence(self.rng_key)
-        sample_input = self._get_train_batch()
-        encoder_params = self.encoder_fn.init(next(rng), sample_input.s1)
-        params = {
-            'encoder': encoder_params,
-        }
-        # Add duals and state info to the params dictionary
-        additional_params = self.init_additional_params()
-        params.update(additional_params)
+        if reset_params:
+
+            # Initialize the parameters
+            rng = hk.PRNGSequence(self.rng_key)
+            sample_input = self._get_train_batch()
+            encoder_params = self.encoder_fn.init(next(rng), sample_input.s1)
+            params = {
+                'encoder': encoder_params,
+            }
+            # Add duals and state info to the params dictionary
+            additional_params = self.init_additional_params()
+            params.update(additional_params)
         
-        # Initialize the optimizer
-        opt_state = self.optimizer.init(params)   # TODO: Should encoder_params be the only ones updated by the optimizer?
+            # Initialize the optimizer
+            opt_state = self.optimizer.init(params)   # TODO: Should encoder_params be the only ones updated by the optimizer?
 
         # Learning begins   # TODO: Better comments
         timer.set_step(0)
@@ -313,12 +315,13 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
             }
             self.logger.log(eigval_dict)
 
-    def collect_experience(self) -> None:
+    def collect_experience(self, policy=None) -> None:
         # Create agent
-        policy = Policy(
-            num_actions=self.env.action_space.n, 
-            seed=self.seed
-        )
+        if policy is None:
+            policy = Policy(
+                num_actions=self.env.action_space.n,
+                seed=self.seed
+            )
         agent = Agent(policy)
 
         # Collect trajectories from random actions
