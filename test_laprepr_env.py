@@ -48,7 +48,7 @@ def create_env(
             reward_weights,
             env_family, 
             full_representation = True,
-            termination_reward: float = 0.0,
+            termination_reward = 0.0,
             path=path_txt_grid, 
             render_mode="rgb_array", 
             use_target=False, 
