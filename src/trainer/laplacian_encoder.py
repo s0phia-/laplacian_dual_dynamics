@@ -76,25 +76,26 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
 
         return params, opt_state, aux[0]
 
-    def train(self, reset_params=True) -> None:
+    def train(self) -> None:
         # TODO don't reinitialize on every run of training step
         timer = timer_tools.Timer()
 
-        if reset_params:
+        # Initialize the parameters
+        rng = hk.PRNGSequence(self.rng_key)
+        sample_input = self._get_train_batch()
+        encoder_params = self.encoder_fn.init(next(rng), sample_input.s1)
+        params = {
+            'encoder': encoder_params,
+        }
+        # Add duals and state info to the params dictionary
+        additional_params = self.init_additional_params()
+        params.update(additional_params)
 
-            # Initialize the parameters
-            rng = hk.PRNGSequence(self.rng_key)
-            sample_input = self._get_train_batch()
-            encoder_params = self.encoder_fn.init(next(rng), sample_input.s1)
-            params = {
-                'encoder': encoder_params,
-            }
-            # Add duals and state info to the params dictionary
-            additional_params = self.init_additional_params()
-            params.update(additional_params)
-        
-            # Initialize the optimizer
-            opt_state = self.optimizer.init(params)   # TODO: Should encoder_params be the only ones updated by the optimizer?
+        # Initialize the optimizer
+        opt_state = self.optimizer.init(params)
+
+        # sophia
+        print(f'sophia: {self.env.get_eigenvectors()[9]}')
 
         # Learning begins   # TODO: Better comments
         timer.set_step(0)
@@ -332,7 +333,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         while total_n_steps < self.n_samples:
             n_steps = min(collect_batch, 
                     self.n_samples - total_n_steps)
-            steps = agent.collect_experience(self.env, n_steps)
+            steps, _ = agent.collect_experience(self.env, n_steps)
             self.replay_buffer.add_steps(steps)
             total_n_steps += n_steps
             print(f'({total_n_steps}/{self.n_samples}) steps collected.')
