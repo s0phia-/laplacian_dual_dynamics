@@ -2,7 +2,7 @@ import abc
 import collections
 import gymnasium as gym
 
-from src.policy import Policy
+from src.policy.policy import Policy
 
 Step = collections.namedtuple('Step', 'agent_state, action, episode_done')
 
@@ -37,6 +37,7 @@ class BehaviorAgent(Agent):
             num_steps: int
         ) -> list:
         steps = []
+        sars = []
         observation = env.reset()[0]
         episode_done = False
         for _ in range(num_steps):
@@ -55,8 +56,9 @@ class BehaviorAgent(Agent):
                 # Take action and get next observation
                 observation, reward, terminated, truncated, info = env.step(action)
                 episode_done = terminated or truncated
+                sars.append([agent_state, action, reward, observation])
 
-        return steps
+        return steps, sars
 
     def __str__(self):
         return f"behavior_agent({str(self.policy)})"
