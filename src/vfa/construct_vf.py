@@ -1,60 +1,7 @@
-import numpy as np
 from src.vfa.lstd import LspiAgent
-from src.agent.agent import BehaviorAgent as Agent
-from src.tools import timer_tools
-from src.agent.episodic_replay_buffer import EpisodicReplayBuffer
-
-
-class ValueFunctionApproximation:
-    def __init__(self, env, n_samples, replay_buffer: EpisodicReplayBuffer, env_name):
-        self.env = env
-        self.n_samples = n_samples
-        self.replay_buffer = replay_buffer
-        self.env_name = env_name
-
-    def fit(self, eigenvectors):
-        pass
-
-    def collect_experience(self, policy) -> None:
-
-        agent = Agent(policy)
-
-        # Collect trajectories from random actions
-        print('Start collecting samples.')  # TODO: Use logging
-        timer = timer_tools.Timer()
-        total_n_steps = 0
-        collect_batch = 10_000  # TODO: Check if necessary
-        while total_n_steps < self.n_samples:
-            n_steps = min(collect_batch,
-                          self.n_samples - total_n_steps)
-            steps = agent.collect_experience(self.env, n_steps)
-            self.replay_buffer.add_steps(steps)
-            total_n_steps += n_steps
-            print(f'({total_n_steps}/{self.n_samples}) steps collected.')
-        time_cost = timer.time_cost()
-        print(f'Data collection finished, time cost: {time_cost}s')
-
-        # Plot visitation counts
-        min_visitation, max_visitation, visitation_entropy, max_entropy, visitation_freq = \
-            self.replay_buffer.plot_visitation_counts(
-                self.env.get_states(),
-                self.env_name,
-                self.env.grid.astype(bool),
-            )
-        time_cost = timer.time_cost()
-        print(f'Visitation evaluated, time cost: {time_cost}s')
-        print(f'Min visitation: {min_visitation}')
-        print(f'Max visitation: {max_visitation}')
-        print(f'Visitation entropy: {visitation_entropy}/{max_entropy}')
-
-
-if __name__ == '__main__':
-    # collect experience
-    x=0
-
-    # learn eigenvectors, initialised with existing eigenvectors if exist
-
-    # learn VF with LSPI
+# from src.agent.agent import BehaviorAgent as Agent
+# from src.tools import timer_tools
+# from src.agent.episodic_replay_buffer import EpisodicReplayBuffer
 
 import os
 import yaml
@@ -62,6 +9,7 @@ from argparse import ArgumentParser
 import random
 import subprocess
 import numpy as np
+import datetime
 
 import jax
 import jax.numpy as jnp
@@ -83,8 +31,10 @@ os.environ['WANDB_ENTITY'] = 'tarod13'
 
 
 def main(hyperparams):
+    os.chdir('../..')
     if hyperparams.wandb_offline:
         os.environ['WANDB_MODE'] = 'offline'
+
 
     # Load YAML hyperparameters
     with open(f'./src/hyperparam/{hyperparams.config_file}', 'r') as f:
@@ -104,8 +54,9 @@ def main(hyperparams):
 
     # Create trainer
     d = hparam_yaml['d']
-    algorithm = hparam_yaml['algorithm']
+
     rng_key = jax.random.PRNGKey(hparam_yaml['seed'])
+
     hidden_dims = hparam_yaml['hidden_dims']
 
     encoder_fn = generate_hk_module_fn(MLP, d, hidden_dims, hparam_yaml['activation'])
@@ -117,6 +68,7 @@ def main(hyperparams):
 
     Trainer = AugmentedLagrangianTrainer
 
+    # when you initialise the trainer, it builds the environment and collects experience
     trainer = Trainer(
         encoder_fn=encoder_fn,
         optimizer=optimizer,
@@ -125,33 +77,46 @@ def main(hyperparams):
         rng_key=rng_key,
         **hparam_yaml,
     )
-    # the loop is
-    # collect random experience
-    # learn evs
+
+    # learn EVs
+    trainer.train()
+
+    # gather EVs
+    eigens = trainer.eigvec_dict
+    print(f'sophia: {trainer.env.get_eigenvectors()[1]}')
+
     # fit policy
-    # collect guided experience
-    # learn evs
-    # fit policy
-    ###########
-    # when you initialise the trainer, it builds the environment and collects experience
-    # initialise the trainer (above)
-    # trainer.train()
-    # for i in n_loops_to_do:
-    #   trainer.train(reset_params=False)
-    #   get learned evs
-    #   fit lspi
-    #   collect experience with policy
+    lspi = LspiAgent(eigenvectors=trainer.env.get_eigenvectors(),
+                     actions=trainer.env.action_space,
+                     )
+
+    n_loops_to_do = 3
+    for _ in range(n_loops_to_do):
+        # collect experience
+        # todo: this should be using the policy to collect experience, not the built in exp collector. Need Policy objt
+        trainer.collect_experience()
+        print("SOPHIA", trainer.replay_buffer._current_size)
+    
+
+        # learn EVs
+        trainer.train()
+
+        # read in EVs
+        eigens = trainer.eigvec_dict
+
+        # learn value function
+        # todo:
+
+
     # trainer.build_environment()
-    # trainer.collect_experience()
+
+
 
     # todo
     # make sure training loop doesn't reset parameters each time - put in flag for resetting DONE?
     # get learned evs
     # make ev format work with lspi
     #######
-
-
-    trainer.train()
 
     # Print training time
     print('Total time cost: {:.4g}s.'.format(timer.time_cost()))
@@ -160,8 +125,9 @@ def main(hyperparams):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument(
-        "exp_label",
+        "--exp_label",
         type=str,
+        default=f'exp_label_{datetime.datetime.now()}',
         help="Experiment label",
     )
 
@@ -180,7 +146,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--config_file',
         type=str,
-        default='barrier.yaml',
+        default='al.yaml',
         help='Configuration file to use.'
     )
     parser.add_argument(
