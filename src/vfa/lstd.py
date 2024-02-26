@@ -99,23 +99,6 @@ class LspiAgent:
                 break
         return w_new
 
-    # def collect_experience(self, episodes, env, max_episode_length):
-    #     new_samples = []
-    #     for i in range(episodes):
-    #         env.reset()
-    #         state = env.state_features
-    #         for _ in range(max_episode_length):
-    #             action = self.epsilon_greedy(state)
-    #             _, reward, done, info = env.step(action)
-    #             state_prime = info["state_features"]
-    #             new_samples.append([state, action, reward, state_prime])
-    #             state = state_prime
-    #             if done or len(new_samples) >= self.max_samples:
-    #                 break
-    #     self.source_of_samples += new_samples
-    #     if len(self.source_of_samples) >= self.max_samples:  # if too many samples, only keep last N
-    #         self.source_of_samples = self.source_of_samples[-self.max_samples:]
-
     def run(self, experience, stopping_criteria):
         # self.collect_experience(episodes=episodes, env=env, max_episode_length=max_episode_length)
         self.learn(stopping_criteria=stopping_criteria, source_of_samples=experience)
@@ -125,38 +108,38 @@ class LspiAgent:
 ### test ###
 #############
 
-samples = [[0, 0, 1, 1],
-           [0, 1, 0, 2],
-           [0, 2, 0, 3],
-           [0, 3, 1, 2],
-           [1, 0, 1, 0],
-           [1, 1, 0, 1],
-           [1, 2, 1, 2],
-           [1, 3, 0, 3],
-           [2, 0, 0, 3],
-           [2, 1, 1, 2],
-           [2, 2, 0, 3],
-           [2, 3, 1, 0],
-           [3, 0, 0, 0],
-           [3, 1, 1, 0],
-           [3, 2, 1, 2],
-           [3, 3, 0, 1]]
-
-evs = {0: [1, 0, 0, 0],
-       1: [0, 1, 0, 0],
-       2: [0, 0, 1, 0],
-       3: [0, 0, 0, 1]}
-
-# x = Lstdq(num_actions=4,
-#           policy=[[4, 2, 6, 2],
-#                   [6, 0, 7, 2],
-#                   [4, 3, 6, 7],
-#                   [8, 3, 1, 2]],
-#           eigenvectors=evs,
-#           source_of_samples=samples)
-
-y = LspiAgent(eigenvectors=evs, actions=[0, 1, 2, 3], max_samples=10 ** 6, source_of_samples=samples)
-y.run(200, "x", .1)
-
-
-#  next thing to do - make it work with "collect experience"
+# samples = [[0, 0, 1, 1],
+#            [0, 1, 0, 2],
+#            [0, 2, 0, 3],
+#            [0, 3, 1, 2],
+#            [1, 0, 1, 0],
+#            [1, 1, 0, 1],
+#            [1, 2, 1, 2],
+#            [1, 3, 0, 3],
+#            [2, 0, 0, 3],
+#            [2, 1, 1, 2],
+#            [2, 2, 0, 3],
+#            [2, 3, 1, 0],
+#            [3, 0, 0, 0],
+#            [3, 1, 1, 0],
+#            [3, 2, 1, 2],
+#            [3, 3, 0, 1]]
+#
+# evs = {0: [1, 0, 0, 0],
+#        1: [0, 1, 0, 0],
+#        2: [0, 0, 1, 0],
+#        3: [0, 0, 0, 1]}
+#
+# # x = Lstdq(num_actions=4,
+# #           policy=[[4, 2, 6, 2],
+# #                   [6, 0, 7, 2],
+# #                   [4, 3, 6, 7],
+# #                   [8, 3, 1, 2]],
+# #           eigenvectors=evs,
+# #           source_of_samples=samples)
+#
+# y = LspiAgent(eigenvectors=evs, actions=[0, 1, 2, 3], max_samples=10 ** 6, source_of_samples=samples)
+# y.run(200, "x", .1)
+#
+#
+# #  next thing to do - make it work with "collect experience"
