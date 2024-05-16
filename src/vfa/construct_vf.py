@@ -1,15 +1,17 @@
-from src.vfa.lstd import LspiAgent
+from src.vfa.lstd import LspiAgent, Lstdq, PlotAgent
 # from src.agent.agent import BehaviorAgent as Agent
 # from src.tools import timer_tools
 # from src.agent.episodic_replay_buffer import EpisodicReplayBuffer
 
 import os
 import yaml
+import csv
 from argparse import ArgumentParser
 import random
 import subprocess
 import numpy as np
 import datetime
+import gymnasium as gym
 
 import jax
 import jax.numpy as jnp
@@ -52,78 +54,106 @@ def main(hyperparams):
     # Initialize timer
     timer = timer_tools.Timer()
 
-    # Create trainer
-    d = hparam_yaml['d']
+    if hparam_yaml['relearn_eigvecs']:
 
-    rng_key = jax.random.PRNGKey(hparam_yaml['seed'])
+        # Create trainer
+        d = hparam_yaml['d']
 
-    hidden_dims = hparam_yaml['hidden_dims']
+        rng_key = jax.random.PRNGKey(hparam_yaml['seed'])
 
-    encoder_fn = generate_hk_module_fn(MLP, d, hidden_dims, hparam_yaml['activation'])
+        hidden_dims = hparam_yaml['hidden_dims']
 
-    optimizer = optax.adam(hparam_yaml['lr'])  # TODO: Add hyperparameter to config file
+        encoder_fn = generate_hk_module_fn(MLP, d, hidden_dims, hparam_yaml['activation'])
 
-    replay_buffer = EpisodicReplayBuffer(
-        max_size=hparam_yaml['n_samples'])  # TODO: Separate hyperparameter for replay buffer size (?)
+        optimizer = optax.adam(hparam_yaml['lr'])  # TODO: Add hyperparameter to config file
 
-    Trainer = AugmentedLagrangianTrainer
+        replay_buffer = EpisodicReplayBuffer(
+            max_size=hparam_yaml['n_samples'])  # TODO: Separate hyperparameter for replay buffer size (?)
 
-    # when you initialise the trainer, it builds the environment and collects experience
-    trainer = Trainer(
-        encoder_fn=encoder_fn,
-        optimizer=optimizer,
-        replay_buffer=replay_buffer,
-        logger=None,
-        rng_key=rng_key,
-        **hparam_yaml,
-    )
+        if hparam_yaml['use_wandb']:
+            # Set wandb save directory
+            if hparam_yaml['save_dir'] is None:
+                save_dir = os.getcwd()
+                os.makedirs(save_dir, exist_ok=True)
+                hparam_yaml['save_dir'] = save_dir
 
-    # learn EVs
-    trainer.train()
+            # Initialize wandb logger
+            logger = wandb.init(
+                project='laplacian-encoder',
+                dir=hparam_yaml['save_dir'],
+                config=hparam_yaml,
+            )
+            # wandb_logger.watch(laplacian_encoder)   # TODO: Test overhead
+        else:
+            logger = None
 
-    # gather EVs
-    eigens = trainer.eigvec_dict
-    print(f'sophia: {trainer.env.get_eigenvectors()[1]}')
+        Trainer = AugmentedLagrangianTrainer
 
-    # fit policy
-    lspi = LspiAgent(eigenvectors=trainer.env.get_eigenvectors(),
-                     actions=trainer.env.action_space,
-                     )
-
-    n_loops_to_do = 3
-    for _ in range(n_loops_to_do):
-        # collect experience
-        # todo: this should be using the policy to collect experience, not the built in exp collector. Need Policy objt
-        trainer.collect_experience()
-        print("SOPHIA", trainer.replay_buffer._current_size)
-    
+        # when you initialise the trainer, it builds the environment and collects experience
+        trainer = Trainer(
+            encoder_fn=encoder_fn,
+            optimizer=optimizer,
+            replay_buffer=replay_buffer,
+            logger=logger,
+            rng_key=rng_key,
+            **hparam_yaml,
+        )
 
         # learn EVs
-        trainer.train()
+        eigvec = trainer.train(return_eigvec=True)
 
-        # read in EVs
-        eigens = trainer.eigvec_dict
+        # save EVs to a CSV file
+        with open('eigenvectors.csv', 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(eigvec)
 
-        # learn value function
-        # todo:
+        env = trainer.env
 
+    else:
+        with open('eigenvectors.csv', newline='') as f:
+            eigvec = csv.reader(f, delimiter=' ', quotechar='|')
 
-    # trainer.build_environment()
+        # create environment
+        env_name = hparam_yaml['env_name']
+        env = gym.make(
+            'Grid-v0',
+            path=f'src/env/grid/txts/{env_name}.txt',
+            render_mode="rgb_array",
+            use_target=True
+        )
 
+    # fit policy
+    lspi = LspiAgent(eigenvectors=eigvec,
+                     state_map=env.get_state_indices(),
+                     actions=env.action_space,
+                     source_of_samples=trainer.sars,
+                     env=env)
 
+    stopping_criteria = .001
+    policy, toplot = lspi.learn(stopping_criteria)
 
-    # todo
-    # make sure training loop doesn't reset parameters each time - put in flag for resetting DONE?
-    # get learned evs
-    # make ev format work with lspi
-    #######
+    # TODO: collect experience using learned agent's policy
+    # note: to really be sample efficient, can't need to see every state once -- otherwise tabular Q with experience
+    # replay would be just as good. Need to be able to generalise to new data points -- this is IMPORTANT
 
     # Print training time
     print('Total time cost: {:.4g}s.'.format(timer.time_cost()))
 
+    with open('out.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(toplot)
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()
+
+    parser.add_argument(
+        '--relearn_eigvecs',
+        type=bool,
+        default=True,
+        help='Relearn eigenvectors or load in pre-learned.'
+    )
+
     parser.add_argument(
         "--exp_label",
         type=str,
@@ -225,4 +255,3 @@ if __name__ == '__main__':
     hyperparams = parser.parse_args()
 
     main(hyperparams)
-

@@ -1,16 +1,16 @@
-d: 11
-n_samples: 200000
+d: 75
+n_samples: 10000
 batch_size: 1024
 discount: 0.9
 log_dir: '/tmp/rl_laprepr/log'
-total_train_steps: 50000
+total_train_steps: 50
 print_freq: 1000
 max_episode_steps: 50
-seed: 1234
-env_name: GridRoom-16
+seed: 69
+env_name: GridRoom-1
 env_family: Grid-v0
 lr: 0.001
-use_wandb: False
+use_wandb: True
 hidden_dims:
   - 256
   - 256
@@ -21,7 +21,7 @@ direct_rotation: True
 save_eig: True
 save_model: False
 save_model_every: 50000
-do_plot_eigenvectors: False
+do_plot_eigenvectors: True
 algorithm: al
 error_update_rate: 1
 q_error_update_rate: 0.1
@@ -36,3 +36,5 @@ lr_duals: 0.0001
 lr_dual_velocities: 0.1
 min_duals: -100
 max_duals: 100
+exp_label: 'whatever'
+save_dir: None

@@ -18,6 +18,7 @@ class Trainer(ABC):
         self.encoder_fn = encoder_fn
         self.optimizer = optimizer
         self.replay_buffer = replay_buffer
+        self.sars = []
         self.logger = logger
         self.rng_key = rng_key
 

@@ -126,13 +126,15 @@ class GridEnv(gym.Env):
         # Choose the agent's location uniformly at random
         agent_location_id = self.np_random.integers(0, self.n_states, size=1, dtype=int)
         self._agent_location = self._states[agent_location_id].flatten()
-        
         # We will sample the target's location randomly until it does not coincide with the agent's location
         if self.use_target:
-            self._target_location = self._agent_location
+            # Sophia change. Change target to a fixed location
+            self._target_location = self._states[self.n_states - 2].flatten()  # self._agent_location
             while np.array_equal(self._target_location, self._agent_location):
-                target_location_id = self.np_random.integers(0, self.n_states, size=1, dtype=int)
-                self._target_location = self._states[target_location_id].flatten()
+                agent_location_id = self.np_random.integers(0, self.n_states, size=1, dtype=int)
+                self._agent_location = self._states[agent_location_id].flatten()
+                # target_location_id = self.np_random.integers(0, self.n_states, size=1, dtype=int)
+                # self._target_location = self._states[target_location_id].flatten()
 
         observation = self._get_obs()
         info = self._get_info()
@@ -159,7 +161,7 @@ class GridEnv(gym.Env):
         if self.use_target:
             terminated = np.array_equal(self._agent_location, self._target_location)
 
-        reward = 1 if terminated else 0  # Binary sparse rewards
+        reward = 1 if terminated else -0.1  # Binary sparse rewards
         observation = self._get_obs()
         info = self._get_info()
 
@@ -377,4 +379,6 @@ class GridEnv(gym.Env):
         # Save eigenvalues and eigenvectors
         with open(filename, 'wb') as f:
             np.savez_compressed(f, eigval=self._eigval, eigvec=self._eigvec)
-    
+
+    def get_state_indices(self):
+        return self._state_indices

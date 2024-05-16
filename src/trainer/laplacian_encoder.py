@@ -14,6 +14,7 @@ import src.env
 from src.env.wrapper.norm_obs import NormObs
 from src.agent.agent import BehaviorAgent as Agent
 from src.policy.policy import DiscreteUniformRandomPolicy as Policy
+from src.vfa.lstd import Lstdq
 
 from ..tools import timer_tools
 from ..tools import summary_tools
@@ -61,7 +62,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         return batch
 
     def train_step(self, params, train_batch, opt_state) -> None:   # TODO: Check if batch_global_idx can be passed as a parameter with jax
-       
+
         # Compute the gradients and associated intermediate metrics
         grads, aux = jax.grad(self.loss_function, has_aux=True)(params, train_batch)
 
@@ -76,10 +77,8 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
 
         return params, opt_state, aux[0]
 
-    def train(self) -> None:
-        # TODO don't reinitialize on every run of training step
+    def train(self, return_eigvec=False):
         timer = timer_tools.Timer()
-
         # Initialize the parameters
         rng = hk.PRNGSequence(self.rng_key)
         sample_input = self._get_train_batch()
@@ -94,16 +93,13 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         # Initialize the optimizer
         opt_state = self.optimizer.init(params)
 
-        # sophia
-        print(f'sophia: {self.env.get_eigenvectors()[9]}')
-
         # Learning begins   # TODO: Better comments
         timer.set_step(0)
         for step in range(self.total_train_steps):
 
             train_batch = self._get_train_batch()
             params, opt_state, metrics = self.train_step(params, train_batch, opt_state)
-            
+
             self._global_step += 1   # TODO: Replace with self.step_counter
 
             params = self.additional_update_step(step, params)
@@ -114,10 +110,10 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
 
                 losses = metrics[:-1]
                 metrics_dict = metrics[-1]
-                
+
                 cosine_similarity, similarities = self.compute_cosine_similarity(params['encoder'])
                 maximal_cosine_similarity, maximal_similarities = self.compute_maximal_cosine_similarity(params['encoder'])
-                
+
                 metrics_dict['cosine_similarity'] = cosine_similarity
                 metrics_dict['maximal_cosine_similarity'] = maximal_cosine_similarity
                 for feature in range(len(similarities)):
@@ -126,7 +122,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
                 metrics_dict['grad_step'] = self._global_step
                 metrics_dict['examples'] = self._global_step * self.batch_size
                 metrics_dict['wall_clock_time'] = timer.time_cost()
-                
+
                 self.train_info['loss_total'] = np.array([jax.device_get(losses[0])])[0]
                 self.train_info['graph_loss'] = np.array([jax.device_get(losses[1])])[0]
                 self.train_info['dual_loss'] = np.array([jax.device_get(losses[2])])[0]
@@ -151,7 +147,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
                 self.plot_eigenvectors(params['encoder'])
 
             is_save_step = (
-                self.save_model 
+                self.save_model
                 and (
                     (((step + 1) % self.save_model_every) == 0)
                     or is_last_step
@@ -159,9 +155,14 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
             )
             if is_save_step:
                 self._save_model(params, opt_state, cosine_similarity)
-                    
+
         time_cost = timer.time_cost()
         print(f'Training finished, time cost {time_cost:.4g}s.')
+        if return_eigvec:
+            states = self.env.get_states()
+            approx_eigvec = self.encoder_fn.apply(params['encoder'], states)
+            return approx_eigvec
+
 
     def _save_model(self, params, optim_state, cosine_similarity):
         # Save the model if the cosine similarity is better than the previous best
@@ -177,9 +178,9 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
             )
 
             # Log parameters
-            if self.use_wandb:                    
+            if self.use_wandb:
                 best_model = wandb.Artifact(
-                    name='best_model', 
+                    name='best_model',
                     type='model',
                     description='Best model found during training.',
                 )
@@ -189,9 +190,9 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
 
                 # Save the artifact
                 self.logger.log_artifact(best_model)
-            
+
         # Save the model every log step
-        save_path_last = f'./results/models/{self.env_name}/last_{self._date_time}.pkl'        
+        save_path_last = f'./results/models/{self.env_name}/last_{self._date_time}.pkl'
         saving.save_model(
             params=params,
             optim_state=optim_state,
@@ -202,7 +203,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         # Log parameters
         if self.use_wandb:
             last_model = wandb.Artifact(
-                name='last_model', 
+                name='last_model',
                 type='model',
                 description='Most recent model.',
             )
@@ -218,14 +219,14 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
                 step=self._global_step, info=self.train_info)
         print(summary_str)   # TODO: Use logging instead of print
 
-    def reset_counters(self) -> None:   
+    def reset_counters(self) -> None:
         self.step_counter = 0
         self.log_counter = 0
 
     def update_counters(self) -> None:
         self.step_counter += 1
         self.log_counter = (self.log_counter + 1) % self.print_freq
-        
+
     def build_environment(self):
         # Load eigenvectors and eigenvalues of the transition dynamics matrix (if they exist)
         path_eig = f'./src/env/grid/eigval/{self.env_name}.npz'
@@ -248,15 +249,15 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         # Create environment
         path_txt_grid = f'./src/env/grid/txts/{self.env_name}.txt'
         env = gym.make(
-            self.env_family, 
-            path=path_txt_grid, 
-            render_mode="rgb_array", 
-            use_target=False, 
+            self.env_family,
+            path=path_txt_grid,
+            render_mode="rgb_array",
+            use_target=True,
             eig=eig,
         )
         # Wrap environment with observation normalization
-        obs_wrapper = lambda e: NormObs(e)
-        env = obs_wrapper(env)
+        # obs_wrapper = lambda e: NormObs(e) todo: I removed this to make my stuff work, not sure how important it is
+        # env = obs_wrapper(env)
         # Wrap environment with time limit
         time_wrapper = lambda e: TimeLimit(e, max_episode_steps=self.max_episode_steps)
         env = time_wrapper(env)
@@ -304,7 +305,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
                 eigvec_dict[eigval] = []
             eigvec_dict[eigval].append(jnp_real_eigvec_norm[:,i])
         self.eigvec_dict = eigvec_dict
-        
+
         # Print multiplicity of first eigenvalues
         multiplicities = [len(eigvec_dict[eigval]) for eigval in eigvec_dict.keys()]
         for i, eigval in enumerate(eigvec_dict.keys()):
@@ -319,10 +320,12 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
     def collect_experience(self, policy=None) -> None:
         # Create agent
         if policy is None:
-            policy = Policy(
+            policy = Lstdq(
                 num_actions=self.env.action_space.n,
                 seed=self.seed
             )
+
+            num_actions, policy, eigenvectors, state_map, source_of_samples
         agent = Agent(policy)
 
         # Collect trajectories from random actions
@@ -331,15 +334,16 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         total_n_steps = 0
         collect_batch = 10_000   # TODO: Check if necessary
         while total_n_steps < self.n_samples:
-            n_steps = min(collect_batch, 
+            n_steps = min(collect_batch,
                     self.n_samples - total_n_steps)
-            steps, _ = agent.collect_experience(self.env, n_steps)
+            steps, sars = agent.collect_experience(self.env, n_steps)
             self.replay_buffer.add_steps(steps)
+            self.sars += sars
             total_n_steps += n_steps
             print(f'({total_n_steps}/{self.n_samples}) steps collected.')
         time_cost = timer.time_cost()
         print(f'Data collection finished, time cost: {time_cost}s')
-        
+
         # Plot visitation counts
         min_visitation, max_visitation, visitation_entropy, max_entropy, visitation_freq = \
             self.replay_buffer.plot_visitation_counts(
@@ -352,9 +356,9 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         print(f'Min visitation: {min_visitation}')
         print(f'Max visitation: {max_visitation}')
         print(f'Visitation entropy: {visitation_entropy}/{max_entropy}')
-    
+
     def encode_states(
-            self, 
+            self,
             params_encoder,
             train_batch: Data,
             *args, **kwargs,
@@ -369,11 +373,11 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         constraint_end_representation = self.encoder_fn.apply(params_encoder, train_batch.s_neg_2)
 
         return (
-            start_representation, end_representation, 
-            constraint_start_representation, 
+            start_representation, end_representation,
+            constraint_start_representation,
             constraint_end_representation,
         )
-    
+
     def update_target(self) -> None:
         has_target = hasattr(self.model, 'target') and self.model.target is not None
         if has_target:
@@ -396,7 +400,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         approx_eigvec = self.encoder_fn.apply(params_encoder, states)
         norms = jnp.linalg.norm(approx_eigvec, axis=0, keepdims=True).clip(min=1e-10)
         approx_eigvec = approx_eigvec / norms
-        
+
         # Compute cosine similarities for both directions
         sim_first_dir = (approx_eigvec * real_eigvec).sum(axis=0)
         sim_second_dir = (- approx_eigvec * real_eigvec).sum(axis=0)
@@ -405,14 +409,14 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         similarities = jnp.maximum(sim_first_dir, sim_second_dir)
         cosine_similarity = similarities.mean()
         return cosine_similarity, similarities
-    
+
     def compute_cosine_similarity(self, params_encoder):
         # Get approximated eigenvectors
         states = self.env.get_states()
         approx_eigvec = self.encoder_fn.apply(params_encoder, states)
         norms = jnp.linalg.norm(approx_eigvec, axis=0, keepdims=True)
         approx_eigvec = approx_eigvec / norms.clip(min=1e-10)
-        
+
         # Compute cosine similarities for both directions
         unique_real_eigval = sorted(self.eigvec_dict.keys(), reverse=True)
         # print(f'Unique eigenvalues: {unique_real_eigval}')
@@ -421,7 +425,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         for i, eigval in enumerate(unique_real_eigval):
             multiplicity = len(self.eigvec_dict[eigval])
             # print(f'Eigenvalue {eigval} has multiplicity {multiplicity}')
-            
+
             # Compute cosine similarity
             if multiplicity == 1:
                 # Get eigenvectors associated with the current eigenvalue
@@ -431,7 +435,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
                 # Check if any NaN values are present
                 assert not jnp.isnan(current_approx_eigvec).any(), \
                     f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
-                
+
                 assert not jnp.isnan(current_real_eigvec).any(), \
                     f'NaN values in the real eigenvector: {current_real_eigvec}'
 
@@ -443,14 +447,14 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
                 # Get eigenvectors associated with the current eigenvalue
                 current_real_eigvec = self.eigvec_dict[eigval]
                 current_approx_eigvec = approx_eigvec[:,id_:id_+multiplicity]
-                
+
                 # Rotate approximated eigenvectors to match the space spanned by the real eigenvectors
                 optimal_approx_eigvec = self.rotate_eigenvectors(
                     current_real_eigvec, current_approx_eigvec)
 
                 norms = jnp.linalg.norm(optimal_approx_eigvec, axis=0, keepdims=True)
                 optimal_approx_eigvec = optimal_approx_eigvec / norms.clip(min=1e-10)   # We normalize, since the cosine similarity is invariant to scaling
-                
+
                 # Compute cosine similarity
                 for j in range(multiplicity):
                     real = current_real_eigvec[j]
@@ -471,14 +475,14 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
             f'NaN values in the cosine similarities: {similarities}'
 
         return cosine_similarity, similarities
-    
+
     def find_best_basis_for_eigenvectors(
-            self, 
-            u_list: list, 
+            self,
+            u_list: list,
             E: jnp.ndarray
         ) -> jnp.ndarray:
         '''
-            Rotate the eigenvectors in E to match the 
+            Rotate the eigenvectors in E to match the
             eigenvectors in u_list as close as possible.
             That is, we are finding the optimal basis of
             the subspace spanned by the eigenvectors in E
@@ -516,14 +520,14 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
 
         rotated_eigvec = jnp.concatenate(rotated_eigvec, axis=1)
         return rotated_eigvec
-    
+
     def rotate_eigenvectors(
-            self, 
-            u_list: list, 
+            self,
+            u_list: list,
             E: jnp.ndarray
         ) -> jnp.ndarray:
         '''
-            Rotate the eigenvectors in E to match the 
+            Rotate the eigenvectors in E to match the
             eigenvectors in u_list as close as possible.
             That is, we are finding the optimal basis of
             the subspace spanned by the eigenvectors in E
@@ -557,27 +561,27 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         # Obtain list of rotated eigenvectors
         rotated_eigvec = E.dot(R)
         return rotated_eigvec
-    
+
     def compute_maximal_cosine_similarity(self, params_encoder):
         # Get approximated eigenvectors
         states = self.env.get_states()
         approx_eigvec = self.encoder_fn.apply(params_encoder, states)
         norms = jnp.linalg.norm(approx_eigvec, axis=0, keepdims=True)
         approx_eigvec = approx_eigvec / norms.clip(min=1e-10)
-        
+
         # Select rotation function
         rotation_function = self.rotate_eigenvectors
-        
+
         real_eigvec = []
         for eigval in self.eigvec_dict.keys():
             real_eigvec = real_eigvec + self.eigvec_dict[eigval]
-                
+
         # Rotate approximated eigenvectors to match the space spanned by the real eigenvectors
         optimal_approx_eigvec = rotation_function(
             real_eigvec, approx_eigvec)
         norms = jnp.linalg.norm(optimal_approx_eigvec, axis=0, keepdims=True)
         optimal_approx_eigvec = optimal_approx_eigvec / norms.clip(min=1e-10)   # We normalize, since the cosine similarity is invariant to scaling
-        
+
         # Compute cosine similarity
         similarities = []
         for j in range(self.d):
@@ -593,19 +597,19 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         cosine_similarity = similarities.mean()
 
         return cosine_similarity, similarities
-    
+
     def plot_eigenvectors(self, params_encoder):
         """Plot each of the eigenvectors."""
-        
+
         # Get approximated eigenvectors
         states = self.env.get_states()
         approx_eigvec = self.encoder_fn.apply(params_encoder, states)
         norms = jnp.linalg.norm(approx_eigvec, axis=0, keepdims=True)
-        approx_eigvec = approx_eigvec / norms.clip(min=1e-10)   
+        approx_eigvec = approx_eigvec / norms.clip(min=1e-10)
 
         # Obtain sign of first non-zero element of eigenvectors
         first_non_zero_id = jnp.argmax(approx_eigvec != 0, axis=0)
-        
+
         # Choose directions of eigenvectors
         signs = jnp.sign(approx_eigvec[jnp.arange(approx_eigvec.shape[1]), first_non_zero_id])
         approx_eigvec = approx_eigvec * signs.reshape(1,-1)
@@ -620,15 +624,15 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
             self.plot_single_eigenvector(states, i, eigenvector, grid, vmin, vmax)
 
         print('Eigenvectors plotted.')
-    
+
     def plot_single_eigenvector(self, states, eigenvector_id, eigenvector, grid, vmin, vmax):
         """Plot each of the eigenvectors."""
-        
+
         # Obtain x, y, z coordinates, where z is the visitation count
         y = states[:,0]
         x = states[:,1]
         z = eigenvector
-                    
+
         # Calculate tile size
         x_num_tiles = np.unique(x).shape[0]
         x_tile_size = (np.max(x) - np.min(x)) / x_num_tiles
@@ -645,7 +649,7 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
         ZI = rbf(XI, YI)
         ZI_bounds = 85 * np.ma.masked_where(grid, np.ones_like(ZI))
         ZI_free = np.ma.masked_where(~grid, ZI)
-        
+
         # Generate color mesh
         fig, ax = plt.subplots(1,1, figsize=(10,10))
         mesh = ax.pcolormesh(XI, YI, ZI_free, shading='auto', cmap='coolwarm', vmin=vmin, vmax=vmax)
@@ -664,10 +668,10 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
             os.makedirs(os.path.dirname(fig_path))
 
         plt.savefig(
-            fig_path, 
-            bbox_inches='tight', 
-            dpi=300, 
-            transparent=True, 
+            fig_path,
+            bbox_inches='tight',
+            dpi=300,
+            transparent=True,
         )
 
     @abstractmethod
@@ -677,11 +681,11 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
     @abstractmethod
     def loss_function(self, *args, **kwargs):
         raise NotImplementedError
-    
+
     @abstractmethod
     def update_training_state(self, *args, **kwargs):
         raise NotImplementedError
-    
+
     @abstractmethod
     def additional_update_step(self, *args, **kwargs):
-        raise NotImplementedError    
+        raise NotImplementedError
