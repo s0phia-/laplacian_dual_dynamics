@@ -100,6 +100,7 @@ class LspiAgent:
                  max_samples: int = 10 ** 6,
                  source_of_samples: list = [],
                  seed=0):
+        np.random.seed = seed
         self.eigenvectors = eigenvectors  # array of eigenvectors
         self.state_map = state_map  # mapping from states to eigenvector index
         self.source_of_samples = source_of_samples
@@ -111,7 +112,6 @@ class LspiAgent:
         self.model = Lstdq
         self.env = env
         self.seed = seed
-        np.random.seed = seed
 
     @staticmethod
     def random_tiebreak_argmax(x):
@@ -123,6 +123,7 @@ class LspiAgent:
         diff_list = []
         training_steps = 0
         return_per_step = []
+        return_per_step.append(['steps', 'avg_return', 'datapoints'])
         for i in range(max_out):
             if diff > stopping_criteria or diff not in diff_list:
                 w_old = self.policy
@@ -144,7 +145,7 @@ class LspiAgent:
                                                                              source_of_samples=None)).go()
                 training_steps += len(self.source_of_samples)
                 print(diff, avg_return, training_steps)
-                return_per_step.append([training_steps, avg_return])
+                return_per_step.append([training_steps, avg_return, len(self.source_of_samples)])
             else:
                 break
         return w_new, return_per_step
