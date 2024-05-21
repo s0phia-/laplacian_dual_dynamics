@@ -11,25 +11,32 @@ class Lstdq:
 
     def __init__(self,
                  num_actions: int,
-                 random_number_generator: random.Random = None,
                  seed: int = 0,
                  policy: list = [],
-                 eigenvectors: list = [],
+                 eigenvectors: np.array = [],
                  state_map: list = [],
-                 source_of_samples: list = []):
-        self.len_evs = eigenvectors.shape[1]
-        self.num_actions = num_actions
+                 source_of_samples: list = [],
+                 random_number_generator: random.Random = None,):
+
+        # hyperparams
         self.gamma = .95  # discount factor
-        self.matrix_A = np.zeros([self.len_evs * self.num_actions, self.len_evs * self.num_actions])
-        self.vector_b = np.zeros([self.len_evs * self.num_actions])
+        self.epsilon = 0.1
+
+        # get attrs
+        self.num_actions = num_actions
         self.samples = source_of_samples  # called D in LSPI paper
         self.policy_matrix = policy
-        rng = np.random.default_rng()
-        self.eigenvectors = defaultdict(lambda: np.ones(self.len_evs)) #rng.standard_normal(self.len_evs))
-        for n in range(eigenvectors.shape[0]):
-            self.eigenvectors[n] = eigenvectors[n]
         self.state_map = state_map
-        self.epsilon = 0.1
+        self.eigenvectors = eigenvectors
+
+        # set up
+        if eigenvectors is not []:
+            self.len_evs = eigenvectors.shape[1]
+            self.matrix_A = np.zeros([self.len_evs * self.num_actions, self.len_evs * self.num_actions])
+            self.vector_b = np.zeros([self.len_evs * self.num_actions])
+            self.eigenvectors = defaultdict(lambda: np.ones(self.len_evs))
+            for n in range(eigenvectors.shape[0]):
+                self.eigenvectors[n] = eigenvectors[n]
         set_random_number_generator(self, random_number_generator, seed)
 
     def act(self, state):
@@ -37,7 +44,7 @@ class Lstdq:
         return the action to take, given the state
         """
 
-        if np.random.rand() < self.epsilon:
+        if np.random.rand() < self.epsilon or not self.eigenvectors:
             return self.random_number_generator.randint(0, self.num_actions-1)
         else:
             state = tuple(state.get("agent"))
@@ -91,7 +98,8 @@ class LspiAgent:
                  env,
                  actions,
                  max_samples: int = 10 ** 6,
-                 source_of_samples: list = []):
+                 source_of_samples: list = [],
+                 seed=0):
         self.eigenvectors = eigenvectors  # array of eigenvectors
         self.state_map = state_map  # mapping from states to eigenvector index
         self.source_of_samples = source_of_samples
@@ -102,6 +110,8 @@ class LspiAgent:
         self.action_space = actions
         self.model = Lstdq
         self.env = env
+        self.seed = seed
+        np.random.seed = seed
 
     @staticmethod
     def random_tiebreak_argmax(x):
@@ -116,7 +126,13 @@ class LspiAgent:
         for i in range(max_out):
             if diff > stopping_criteria or diff not in diff_list:
                 w_old = self.policy
-                agent = self.model(self.num_actions, w_old, self.eigenvectors, self.state_map, self.source_of_samples)
+
+                agent = self.model(num_actions=self.num_actions,
+                                   seed=self.seed,
+                                   policy=w_old,
+                                   eigenvectors=self.eigenvectors,
+                                   state_map=self.state_map,
+                                   source_of_samples=self.source_of_samples)
                 w_new = agent.fit()
                 self.policy = w_new
                 diff = round(np.linalg.norm(w_old - w_new), 2)

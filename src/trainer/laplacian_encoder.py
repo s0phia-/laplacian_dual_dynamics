@@ -33,11 +33,11 @@ Data = namedtuple("Data", "s1 s2 s_neg_1 s_neg_2")   # TODO: Change notation
 
 
 class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
-    def __init__(self, *args, **kwargs):
+    def __init__(self, agent_collect_exp=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.reset_counters()
         self.build_environment()
-        self.collect_experience()
+        self.collect_experience(agent_collect_exp)
         self.train_step = jax.jit(self.train_step)   # TODO: _train_step
         # self.compute_cosine_similarity = jax.jit(self.compute_cosine_similarity)
         self.train_info = OrderedDict()
@@ -320,12 +320,10 @@ class LaplacianEncoderTrainer(Trainer, ABC):    # TODO: Handle device
     def collect_experience(self, policy=None) -> None:
         # Create agent
         if policy is None:
-            policy = Lstdq(
+            policy = Policy(
                 num_actions=self.env.action_space.n,
                 seed=self.seed
             )
-
-            num_actions, policy, eigenvectors, state_map, source_of_samples
         agent = Agent(policy)
 
         # Collect trajectories from random actions

@@ -54,50 +54,55 @@ def main(hyperparams):
     # Initialize timer
     timer = timer_tools.Timer()
 
-    if hparam_yaml['relearn_eigvecs']:
 
-        # Create trainer
-        d = hparam_yaml['d']
 
-        rng_key = jax.random.PRNGKey(hparam_yaml['seed'])
+    # Create trainer
+    d = hparam_yaml['d']
 
-        hidden_dims = hparam_yaml['hidden_dims']
+    rng_key = jax.random.PRNGKey(hparam_yaml['seed'])
 
-        encoder_fn = generate_hk_module_fn(MLP, d, hidden_dims, hparam_yaml['activation'])
+    hidden_dims = hparam_yaml['hidden_dims']
 
-        optimizer = optax.adam(hparam_yaml['lr'])  # TODO: Add hyperparameter to config file
+    encoder_fn = generate_hk_module_fn(MLP, d, hidden_dims, hparam_yaml['activation'])
 
-        replay_buffer = EpisodicReplayBuffer(
-            max_size=hparam_yaml['n_samples'])  # TODO: Separate hyperparameter for replay buffer size (?)
+    optimizer = optax.adam(hparam_yaml['lr'])  # TODO: Add hyperparameter to config file
 
-        if hparam_yaml['use_wandb']:
-            # Set wandb save directory
-            if hparam_yaml['save_dir'] is None:
-                save_dir = os.getcwd()
-                os.makedirs(save_dir, exist_ok=True)
-                hparam_yaml['save_dir'] = save_dir
+    replay_buffer = EpisodicReplayBuffer(
+        max_size=hparam_yaml['n_samples'])  # TODO: Separate hyperparameter for replay buffer size (?)
 
-            # Initialize wandb logger
-            logger = wandb.init(
-                project='laplacian-encoder',
-                dir=hparam_yaml['save_dir'],
-                config=hparam_yaml,
-            )
-            # wandb_logger.watch(laplacian_encoder)   # TODO: Test overhead
-        else:
-            logger = None
+    if hparam_yaml['use_wandb']:
+        # Set wandb save directory
+        if hparam_yaml['save_dir'] is None:
+            save_dir = os.getcwd()
+            os.makedirs(save_dir, exist_ok=True)
+            hparam_yaml['save_dir'] = save_dir
 
-        Trainer = AugmentedLagrangianTrainer
-
-        # when you initialise the trainer, it builds the environment and collects experience
-        trainer = Trainer(
-            encoder_fn=encoder_fn,
-            optimizer=optimizer,
-            replay_buffer=replay_buffer,
-            logger=logger,
-            rng_key=rng_key,
-            **hparam_yaml,
+        # Initialize wandb logger
+        logger = wandb.init(
+            project='laplacian-encoder',
+            dir=hparam_yaml['save_dir'],
+            config=hparam_yaml,
         )
+        # wandb_logger.watch(laplacian_encoder)   # TODO: Test overhead
+    else:
+        logger = None
+
+    Trainer = AugmentedLagrangianTrainer
+
+    # when you initialise the trainer, it builds the environment and collects experience
+    trainer = Trainer(
+        encoder_fn=encoder_fn,
+        optimizer=optimizer,
+        replay_buffer=replay_buffer,
+        logger=logger,
+        rng_key=rng_key,
+        agent_collect_experience=Lstdq,
+        **hparam_yaml,
+    )
+
+    env = trainer.env
+
+    if hparam_yaml['relearn_eigvecs']:
 
         # learn EVs
         eigvec = trainer.train(return_eigvec=True)
@@ -107,27 +112,16 @@ def main(hyperparams):
             writer = csv.writer(f)
             writer.writerows(eigvec)
 
-        env = trainer.env
-
     else:
-        with open('eigenvectors.csv', newline='') as f:
-            eigvec = csv.reader(f, delimiter=' ', quotechar='|')
-
-        # create environment
-        env_name = hparam_yaml['env_name']
-        env = gym.make(
-            'Grid-v0',
-            path=f'src/env/grid/txts/{env_name}.txt',
-            render_mode="rgb_array",
-            use_target=True
-        )
+        eigvec = np.genfromtxt('eigenvectors.csv', delimiter=',')
 
     # fit policy
     lspi = LspiAgent(eigenvectors=eigvec,
                      state_map=env.get_state_indices(),
                      actions=env.action_space,
                      source_of_samples=trainer.sars,
-                     env=env)
+                     env=env,
+                     seed=hparam_yaml['seed'])
 
     stopping_criteria = .001
     policy, toplot = lspi.learn(stopping_criteria)
@@ -150,7 +144,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--relearn_eigvecs',
         type=bool,
-        default=True,
+        default=False,
         help='Relearn eigenvectors or load in pre-learned.'
     )
 
