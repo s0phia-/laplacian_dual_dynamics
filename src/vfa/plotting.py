@@ -15,7 +15,7 @@ class Plot:
                                       color='datapoints'))
              + p9.geom_point()
              + p9.theme_bw()
-             + p9.labs(color='Data points seen', x="Steps", y="Log Return")
+             + p9.labs(color='Data points seen', x="Steps", y="Return")
              )
         print(p)
 

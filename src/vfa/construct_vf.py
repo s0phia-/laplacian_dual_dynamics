@@ -1,7 +1,7 @@
 from src.vfa.lstd import LspiAgent, Lstdq, PlotAgent
-# from src.agent.agent import BehaviorAgent as Agent
-# from src.tools import timer_tools
-# from src.agent.episodic_replay_buffer import EpisodicReplayBuffer
+from src.vfa.plotting import Plot
+from src.vfa.qlearning import PlotAgent as PA
+from src.vfa.qlearning import QLearning
 
 import os
 import yaml
@@ -53,8 +53,6 @@ def main(hyperparams):
 
     # Initialize timer
     timer = timer_tools.Timer()
-
-
 
     # Create trainer
     d = hparam_yaml['d']
@@ -115,7 +113,7 @@ def main(hyperparams):
     else:
         eigvec = np.genfromtxt('eigenvectors.csv', delimiter=',')
 
-    # fit policy
+    # train lspi agent
     lspi = LspiAgent(eigenvectors=eigvec,
                      state_map=env.get_state_indices(),
                      actions=env.action_space,
@@ -126,9 +124,13 @@ def main(hyperparams):
     stopping_criteria = .001
     policy, toplot = lspi.learn(stopping_criteria)
 
-    # TODO: collect experience using learned agent's policy
     # note: to really be sample efficient, can't need to see every state once -- otherwise tabular Q with experience
     # replay would be just as good. Need to be able to generalise to new data points -- this is IMPORTANT
+
+    # get data to plot q learning
+    PA(agent=QLearning(n_actions=env.action_space.n),
+       env=env,
+       results_path='out2.csv').get_plotting_data()
 
     # Print training time
     print('Total time cost: {:.4g}s.'.format(timer.time_cost()))
@@ -136,6 +138,9 @@ def main(hyperparams):
     with open('out.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(toplot)
+
+    Plot('out.csv').plot_scatter()
+    Plot('out2.csv').plot_scatter()
 
 
 if __name__ == '__main__':
