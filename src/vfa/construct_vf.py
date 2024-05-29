@@ -1,7 +1,7 @@
 from src.vfa.lstd import Lstdq
 from src.vfa.plotting.plot import Plot
-from src.vfa.baselines.offline_qlearning import OfflineQLearning
-from src.vfa.plotting.collect_plot_data import PlotAgent
+from src.vfa.baselines.offline_qlearning import RunOfflineQ, OfflineQLearning
+from src.vfa.lstd import LspiAgent
 
 import os
 import yaml
@@ -33,7 +33,6 @@ def main(hyperparams):
     os.chdir('../..')
     if hyperparams.wandb_offline:
         os.environ['WANDB_MODE'] = 'offline'
-
 
     # Load YAML hyperparameters
     with open(f'./src/hyperparam/{hyperparams.config_file}', 'r') as f:
@@ -110,43 +109,38 @@ def main(hyperparams):
     else:
         eigvec = np.genfromtxt('eigenvectors.csv', delimiter=',')
 
-    # # train lspi agent
-    # lspi = LspiAgent(eigenvectors=eigvec,
-    #                  state_map=env.get_state_indices(),
-    #                  actions=env.action_space,
-    #                  source_of_samples=trainer.sars,
-    #                  env=env,
-    #                  seed=hparam_yaml['seed'])
-    # stopping_criteria = .001
-    # _, toplot = lspi.learn(stopping_criteria)
-    #
-    # with open('lspi_eigens.csv', 'w', newline='') as f:
-    #     writer = csv.writer(f)
-    #     writer.writerows(toplot)
+    # train lspi agent
+    _, toplot = LspiAgent(eigenvectors=eigvec,
+                          state_map=env.get_state_indices(),
+                          actions=env.action_space,
+                          source_of_samples=trainer.sars,
+                          env=env,
+                          seed=hparam_yaml['seed']).learn(stopping_criteria=.001)
 
-    # baseline agent running offline Q learning
-    baseline_agent = OfflineQLearning(num_actions=4)
+    # save performance
+    with open('lspi_eigens.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(toplot)
 
-    # Train the agent with the offline experiences
-    baseline_agent.train(experiences=trainer.sars)
+    # train baseline offline Q learning agent
+    toplot2 = RunOfflineQ(env=env,
+                          experiences=trainer.sars,
+                          num_actions=4,
+                          agent=OfflineQLearning(num_actions=4,
+                                                 experiences=trainer.sars)).run_loop()
 
-    # average performance over 50 agents
-    toplot2 = PlotAgent(env=env,
-                        initialised_agent=baseline_agent,
-                        agents_to_avg=50)
     # save performance
     with open('baseline.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(toplot2)
 
-    # note: to really be sample efficient, can't need to see every state once -- otherwise tabular Q with experience
-    # replay would be just as good. Need to be able to generalise to new data points -- this is IMPORTANT
+    # note: to really be sample efficient, can't need to see every state once. Need to be able to generalise to
+    # new data points -- this is IMPORTANT
 
     # Print training time
     print('Total time cost: {:.4g}s.'.format(timer.time_cost()))
 
-    Plot('lspi_eigens.csv').plot_scatter()
-    Plot('baseline.csv').plot_scatter()
+    Plot('lspi_eigens.csv', 'baseline.csv').plot_two()
 
 
 if __name__ == '__main__':
