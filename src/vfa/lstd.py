@@ -118,7 +118,7 @@ class LspiAgent:
         x = np.array(x)
         return np.random.choice(np.flatnonzero(x == x.max()))
 
-    def learn(self, stopping_criteria, max_out=1000):
+    def learn(self, stopping_criteria, max_out=100):
         diff = stopping_criteria + 1
         diff_list = []
         training_steps = 0
