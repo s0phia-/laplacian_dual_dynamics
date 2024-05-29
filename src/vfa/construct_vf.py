@@ -1,20 +1,17 @@
-from src.vfa.lstd import LspiAgent, Lstdq, PlotAgent
-from src.vfa.plotting import Plot
-from src.vfa.qlearning import PlotAgent as PA
-from src.vfa.qlearning import QLearning
+from src.vfa.lstd import Lstdq
+from src.vfa.plotting.plot import Plot
+from src.vfa.baselines.offline_qlearning import OfflineQLearning
+from src.vfa.plotting.collect_plot_data import PlotAgent
 
 import os
 import yaml
 import csv
 from argparse import ArgumentParser
 import random
-import subprocess
 import numpy as np
 import datetime
-import gymnasium as gym
 
 import jax
-import jax.numpy as jnp
 import optax
 
 from src.tools import timer_tools
@@ -113,34 +110,43 @@ def main(hyperparams):
     else:
         eigvec = np.genfromtxt('eigenvectors.csv', delimiter=',')
 
-    # train lspi agent
-    lspi = LspiAgent(eigenvectors=eigvec,
-                     state_map=env.get_state_indices(),
-                     actions=env.action_space,
-                     source_of_samples=trainer.sars,
-                     env=env,
-                     seed=hparam_yaml['seed'])
+    # # train lspi agent
+    # lspi = LspiAgent(eigenvectors=eigvec,
+    #                  state_map=env.get_state_indices(),
+    #                  actions=env.action_space,
+    #                  source_of_samples=trainer.sars,
+    #                  env=env,
+    #                  seed=hparam_yaml['seed'])
+    # stopping_criteria = .001
+    # _, toplot = lspi.learn(stopping_criteria)
+    #
+    # with open('lspi_eigens.csv', 'w', newline='') as f:
+    #     writer = csv.writer(f)
+    #     writer.writerows(toplot)
 
-    stopping_criteria = .001
-    policy, toplot = lspi.learn(stopping_criteria)
+    # baseline agent running offline Q learning
+    baseline_agent = OfflineQLearning(num_actions=4)
+
+    # Train the agent with the offline experiences
+    baseline_agent.train(experiences=trainer.sars)
+
+    # average performance over 50 agents
+    toplot2 = PlotAgent(env=env,
+                        initialised_agent=baseline_agent,
+                        agents_to_avg=50)
+    # save performance
+    with open('baseline.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(toplot2)
 
     # note: to really be sample efficient, can't need to see every state once -- otherwise tabular Q with experience
     # replay would be just as good. Need to be able to generalise to new data points -- this is IMPORTANT
 
-    # get data to plot q learning
-    PA(agent=QLearning(n_actions=env.action_space.n),
-       env=env,
-       results_path='out2.csv').get_plotting_data()
-
     # Print training time
     print('Total time cost: {:.4g}s.'.format(timer.time_cost()))
 
-    with open('out.csv', 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerows(toplot)
-
-    Plot('out.csv').plot_scatter()
-    Plot('out2.csv').plot_scatter()
+    Plot('lspi_eigens.csv').plot_scatter()
+    Plot('baseline.csv').plot_scatter()
 
 
 if __name__ == '__main__':
