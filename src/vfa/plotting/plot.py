@@ -7,7 +7,10 @@ import numpy as np
 class Plot:
     def __init__(self, data_source, data_source_2=None):
         self.data = pd.read_csv(data_source)
-        self.data_2 = pd.read_csv(data_source_2)
+        if data_source_2 is not None:
+            self.data_2 = pd.read_csv(data_source_2)
+        else:
+            self.data_2 = None
 
     def plot_scatter(self):
         p = (p9.ggplot(data=self.data,
