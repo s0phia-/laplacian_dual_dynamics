@@ -72,7 +72,7 @@ def main(hyperparams):
     hparam_yaml.update(specific_params)
 
     encoder_fn = generate_hk_module_fn(
-        encoder_net, 
+        encoder_net,
         d, hidden_dims, 
         hparam_yaml['activation'], 
         **specific_params    
@@ -91,7 +91,7 @@ def main(hyperparams):
 
         # Initialize wandb logger
         logger = wandb.init(
-            project='laplacian-encoder', 
+            project='laplacian-encoder',
             dir=hparam_yaml['save_dir'],
             config=hparam_yaml,
         )
@@ -100,13 +100,13 @@ def main(hyperparams):
         logger = None
 
     if algorithm == 'ggdo':
-        Trainer = GeneralizedGraphDrawingObjectiveTrainer
+        Trainer = GeneralizedGraphDrawingObjectiveTrainer  # Wang et al 2021
     elif algorithm == 'al':
-        Trainer = AugmentedLagrangianTrainer
+        Trainer = AugmentedLagrangianTrainer  # equation 5
     elif algorithm == 'sqp':
-        Trainer = SQPTrainer
+        Trainer = SQPTrainer  # stop gradient
     elif algorithm == 'cqp':
-        Trainer = CQPTrainer
+        Trainer = CQPTrainer  # dual variables
     else:
         raise ValueError(f'Algorithm {algorithm} is not supported.')
 
